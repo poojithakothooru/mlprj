@@ -29,7 +29,7 @@ y = np.random.randint(0, 3, 100)
 model = LogisticRegression()
 model.fit(X, y)
 
-classes = ['Recyclable', 'Organic', 'Trash']
+classes = ['plastic','paper','glass','metal','carboard']
 
 # -----------------------------
 # STREAMLIT UI
