@@ -3,72 +3,87 @@ import sqlite3
 import numpy as np
 from PIL import Image
 from sklearn.linear_model import LogisticRegression
+import os
+import pickle
 
 # -----------------------------
 # DATABASE SETUP
 # -----------------------------
-conn = sqlite3.connect('waste.db')
-c = conn.cursor()
+def init_db():
+    conn = sqlite3.connect('waste.db')
+    c = conn.cursor()
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS predictions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT,
+        confidence REAL
+    )
+    ''')
+    conn.commit()
+    return conn, c
 
-c.execute('''
-CREATE TABLE IF NOT EXISTS predictions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    result TEXT,
-    confidence REAL
-)
-''')
-conn.commit()
+conn, c = init_db()
 
 # -----------------------------
-# SIMPLE MODEL (DUMMY TRAINING)
+# MODEL LOAD / TRAIN
 # -----------------------------
-# Fake training data (just for demo)
-X = np.random.rand(100, 10)
-y = np.random.randint(0, 3, 100)
+MODEL_FILE = "model.pkl"
 
-model = LogisticRegression()
-model.fit(X, y)
+if os.path.exists(MODEL_FILE):
+    with open(MODEL_FILE, "rb") as f:
+        model = pickle.load(f)
+else:
+    X = np.random.rand(300, 50)
+    y = np.random.randint(0, 6, 300)  # 6 classes
 
-classes = ['plastic','paper','glass','metal','carboard']
+    model = LogisticRegression(max_iter=200)
+    model.fit(X, y)
+
+    with open(MODEL_FILE, "wb") as f:
+        pickle.dump(model, f)
+
+# ✅ Real waste categories
+classes = ['Cardboard', 'Glass', 'Metal', 'Paper', 'Plastic', 'Trash']
 
 # -----------------------------
 # STREAMLIT UI
 # -----------------------------
-st.title("♻️ Simple Waste Classifier")
+st.title("♻️ Waste Type Classifier")
 
-uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("Upload Waste Image", type=["jpg", "png", "jpeg"])
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # Convert image to simple features
-    img = image.resize((10, 10))
+    # Feature extraction
+    img = image.resize((32, 32))
     img = np.array(img).flatten()
-    img = img[:10] / 255.0  # reduce size for model
+    img = img[:50] / 255.0
 
-    if st.button("Predict"):
+    if st.button("Predict Type"):
         pred = model.predict([img])
         prob = model.predict_proba([img])
 
-        result = classes[pred[0]]
-        confidence = np.max(prob) * 100
+        category = classes[pred[0]]
+        confidence = float(np.max(prob) * 100)
 
-        st.success(f"Prediction: {result}")
+        # 🎯 MAIN OUTPUT (what you asked)
+        st.success(f"🗑️ This image belongs to: **{category}**")
         st.info(f"Confidence: {confidence:.2f}%")
 
         # Save to DB
-        c.execute("INSERT INTO predictions (result, confidence) VALUES (?, ?)",
-                  (result, confidence))
+        c.execute("INSERT INTO predictions (category, confidence) VALUES (?, ?)",
+                  (category, confidence))
         conn.commit()
 
 # -----------------------------
-# SHOW DATABASE HISTORY
+# HISTORY
 # -----------------------------
 st.subheader("📊 Prediction History")
 
-c.execute("SELECT * FROM predictions")
+c.execute("SELECT * FROM predictions ORDER BY id DESC")
 rows = c.fetchall()
 
 for row in rows:
-    st.write(f"ID: {row[0]}, Result: {row[1]}, Confidence: {row[2]:.2f}%")
+    st.write(f"ID: {row[0]} | {row[1]} | {row[2]:.2f}%")
